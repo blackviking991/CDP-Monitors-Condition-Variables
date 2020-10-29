@@ -1,0 +1,13 @@
+2
+u 10 v 10
+1
+R u
+R v
+u = u + v
+W u
+C
+2
+R v
+v = v + 50
+W v
+C
