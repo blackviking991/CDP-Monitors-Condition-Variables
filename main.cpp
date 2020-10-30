@@ -2,6 +2,7 @@
 #include <fstream>
 #include <pthread.h>
 #include <unistd.h>
+using namespace std;
 // Actual Database with name mapped to value, eg. 'u' : 100
 std::unordered_map<std::string, int> vars;
 
@@ -91,6 +92,19 @@ public:
 		seq.push_back('R'); //R means lock request
 		reqSeq.push_back(R);
 	}
+	std::vector<Operation> getopSeq()
+	{
+		return opSeq;
+	}
+	std::vector<Request> getreqSeq()
+	{
+		return reqSeq;
+	}
+	std::string getseq()
+	{
+		return seq;
+	}
+
 	// Function to return Tid for a particular transaction
 	int getId()
 	{
@@ -211,11 +225,38 @@ bool isNumber(std::string s)
 // Execution function for each transaction
 void *runTransaction(void *T)
 {
-	std::cout << "Welcome to exec func"
-			  << "\n";
+	// varname = s1;
+	// 	op = c1;
+	// 	isOtherVar = f1;
+	// 	isVal = f2;
+	// 	otherVar = s2;
+	// 	value = v1;
 	Transaction *trx;
 	trx = (Transaction *)T;
-	std::cout << "Tid for this transaction: " << trx->getId() << "\n";
+	std::vector<Operation> opseq = trx->getopSeq();
+	std::vector<Request> reqseq = trx->getreqSeq();
+	string seq = trx->getseq();
+	std::cout << "Tid for this transaction: " << trx->getId() << "\n\n";
+	cout << "All operation details"
+		 << "\n\n";
+	for (auto i : opseq)
+	{
+		cout << "varname: " << i.varname << "\n";
+		cout << "op: " << i.op << "\n";
+		cout << "isothervar: " << i.isOtherVar << "\n";
+		cout << "othervar: " << i.otherVar << "\n";
+		cout << "isval: " << i.isVal << "\n";
+		cout << "value: " << i.value << "\n";
+	}
+	cout << "All Request details"
+		 << "\n\n";
+	for (auto i : reqseq)
+	{
+		cout << "varname for request: " << i.varname << "\n";
+		cout << "type of op: " << i.type << "\n";
+	}
+	cout << "Sequence of operations :" << seq << "\n\n";
+
 	return NULL;
 }
 
@@ -297,10 +338,6 @@ int main()
 	for (int i = 0; i < N; i++)
 	{
 		pthread_create(&threads[i], NULL, runTransaction, (void *)&tarr[i]);
-	}
-
-	for (int i = 0; i < N; i++)
-	{
 		pthread_join(threads[i], NULL);
 	}
 	std::cout << "The End"
