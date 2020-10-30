@@ -125,7 +125,7 @@ private:
 	std::unordered_map<std::string, int> waiting_write;		 // waiting witers on each database var
 	std::unordered_map<std::string, std::queue<Transaction>> Q;
 	//mp keeps track of what lock is held by what tid
-	std::unordered_map<int, int> mp; // 0  for not present, 1 for read-only, 2 for write-read
+	std::unordered_map<int, unordered_map<string, int>> mp; // 0  for not present, 1 for read-only, 2 for write-read
 
 public:
 	// Initialize everything
@@ -138,7 +138,7 @@ public:
 		}
 	}
 	// for R
-	void acquireReadLock(int tid, std::string varname)
+	bool acquireReadLock(int tid, std::string varname)
 	{
 		pthread_mutex_lock(&lock);
 
@@ -149,12 +149,14 @@ public:
 			waiting_read[varname]--;
 		}
 
-		mp[tid] = 1;
+		mp[tid][varname] = 1;
 		active_read[varname]++;
 		pthread_mutex_unlock(&lock);
+
+		return 1;
 	}
 	// for W
-	void acquireWriteLock(int tid, std::string varname)
+	bool acquireWriteLock(int tid, std::string varname)
 	{
 		pthread_mutex_lock(&lock);
 
@@ -165,15 +167,17 @@ public:
 			waiting_write[varname]--;
 		}
 
-		mp[tid] = 2;
+		mp[tid][varname] = 2;
 		active_write[varname]++;
 		pthread_mutex_unlock(&lock);
+
+		return 1;
 	}
 	// for R -> W
-	void upgradeToWrite(int tid, std::string varname)
+	bool upgradeToWrite(int tid, std::string varname)
 	{
-		if (mp[tid] != 1)
-			return;
+		if (mp[tid][varname] != 1)
+			return 0;
 
 		pthread_mutex_lock(&lock);
 
@@ -184,25 +188,27 @@ public:
 			waiting_write[varname]--;
 		}
 
-		mp[tid] = 2;
+		mp[tid][varname] = 2;
 		active_read[varname]--;
 		active_write[varname]++;
 		pthread_mutex_unlock(&lock);
+
+		return 1;
 	}
 	// to release lock
-	void releaseLock(int tid, std::string varname)
+	bool releaseLock(int tid, std::string varname)
 	{
 		pthread_mutex_lock(&lock);
 
-		if (mp[tid] == 2)
+		if (mp[tid][varname] == 2)
 		{
-			mp[tid] = 0;
+			mp[tid][varname] = 0;
 			active_write[varname]--;
 			pthread_cond_broadcast(&condvar[varname]);
 		}
-		else if (mp[tid] == 1)
+		else if (mp[tid][varname] == 1)
 		{
-			mp[tid] = 0;
+			mp[tid][varname] = 0;
 			active_read[varname]--;
 			if (active_read[varname] == 0 && waiting_write[varname] > 0)
 			{
@@ -211,6 +217,8 @@ public:
 		}
 
 		pthread_mutex_unlock(&lock);
+
+		return 1;
 	}
 };
 // Function to check if string contains a digit
