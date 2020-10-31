@@ -153,7 +153,7 @@ public:
 		active_read[varname]++;
 		pthread_mutex_unlock(&lock);
 
-		return 1;
+		return true;
 	}
 	// for W
 	bool acquireWriteLock(int tid, std::string varname)
@@ -171,13 +171,13 @@ public:
 		active_write[varname]++;
 		pthread_mutex_unlock(&lock);
 
-		return 1;
+		return true;
 	}
 	// for R -> W
 	bool upgradeToWrite(int tid, std::string varname)
 	{
 		if (mp[tid][varname] != 1)
-			return 0;
+			return false;
 
 		pthread_mutex_lock(&lock);
 
@@ -193,7 +193,7 @@ public:
 		active_write[varname]++;
 		pthread_mutex_unlock(&lock);
 
-		return 1;
+		return true;
 	}
 	// to release lock
 	bool releaseLock(int tid, std::string varname)
@@ -218,7 +218,7 @@ public:
 
 		pthread_mutex_unlock(&lock);
 
-		return 1;
+		return true;
 	}
 };
 // Function to check if string contains a digit
@@ -233,42 +233,112 @@ bool isNumber(std::string s)
 // Execution function for each transaction
 void *runTransaction(void *T)
 {
-	// varname = s1;
-	// 	op = c1;
-	// 	isOtherVar = f1;
-	// 	isVal = f2;
-	// 	otherVar = s2;
-	// 	value = v1;
 	Transaction *trx;
+	// trx is current transaction instance
 	trx = (Transaction *)T;
+	// Get all data related to this transaction
 	std::vector<Operation> opseq = trx->getopSeq();
 	std::vector<Request> reqseq = trx->getreqSeq();
 	string seq = trx->getseq();
-	std::cout << "Tid for this transaction: " << trx->getId() << "\n\n";
-	cout << "All operation details"
-		 << "\n\n";
-	for (auto i : opseq)
+	unordered_map<std::string, int> map1; //This map is local copy of database, finally this will written to global
+	unordered_map<std::string, int> map2; //This map stores value after performing operation on var
+	// LockMngr Object
+	LockMgr locker;
+
+	for (int i = 0; i < seq.size(); i++)
 	{
-		cout << "varname: " << i.varname << "\n";
-		cout << "op: " << i.op << "\n";
-		cout << "isothervar: " << i.isOtherVar << "\n";
-		cout << "othervar: " << i.otherVar << "\n";
-		cout << "isval: " << i.isVal << "\n";
-		cout << "value: " << i.value << "\n";
+		// If there is request in seq
+		if (seq[i] == 'R')
+		{
+			// if it is a read request
+			if (reqseq[i].type == "R")
+			{
+				locker.acquireReadLock(trx->getId(), reqseq[i].varname);
+				map1[reqseq[i].varname] = vars[reqseq[i].varname];
+			}
+			// If it is a W request
+			else
+			{
+				if (locker.upgradeToWrite(trx->getId(), reqseq[i].varname))
+				{
+					map1[reqseq[i].varname] = map2[reqseq[i].varname];
+				}
+				else
+				{
+					locker.acquireWriteLock(trx->getId(), reqseq[i].varname);
+					map1[reqseq[i].varname] = map2[reqseq[i].varname];
+				}
+			}
+		}
+		// If there is an Operation in seq
+		else
+		{
+			// Check if already have write lock
+			if (locker.upgradeToWrite(trx->getId(), opseq[i].varname))
+			{
+				// Check if there is other variable present
+				if (opseq[i].isOtherVar)
+				{
+					if (opseq[i].op == "+")
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] + map1[opseq[i].otherVar];
+					}
+					else
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] - map1[opseq[i].otherVar];
+					}
+				}
+				else
+				{
+					if (opseq[i].op == "+")
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] + opseq[i].value;
+					}
+					else
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] - opseq[i].value;
+					}
+				}
+			}
+			// If not then acquire write lock
+			else
+			{
+				locker.acquireWriteLock(trx->getId(), opseq[i].varname);
+				if (opseq[i].isOtherVar)
+				{
+					if (opseq[i].op == "+")
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] + map1[opseq[i].otherVar];
+					}
+					else
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] - map1[opseq[i].otherVar];
+					}
+				}
+				else
+				{
+					if (opseq[i].op == "+")
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] + opseq[i].value;
+					}
+					else
+					{
+						map2[opseq[i].varname] = map1[opseq[i].varname] - opseq[i].value;
+					}
+				}
+			}
+		}
 	}
-	cout << "All Request details"
-		 << "\n\n";
-	for (auto i : reqseq)
+	// After completion of trx i.e C, write map1 to global
+	for (auto i : map1)
 	{
-		cout << "varname for request: " << i.varname << "\n";
-		cout << "type of op: " << i.type << "\n";
+		vars[i.first] = i.second;
 	}
-	cout << "Sequence of operations :" << seq << "\n\n";
 
 	return NULL;
 }
 
-LockMgr *locker;
+// LockMgr *locker;
 
 int main()
 {
@@ -294,8 +364,13 @@ int main()
 			vars[temp[i]] = 0;
 		}
 	}
-	//LockMgr instance
-	locker = new LockMgr();
+	cout << "initial Data: "
+		 << "\n\n";
+	for (auto i : vars)
+	{
+		cout << i.first << " = " << i.second << "\n";
+	}
+
 	// array for each transaction
 	Transaction tarr[N];
 
@@ -346,7 +421,16 @@ int main()
 	for (int i = 0; i < N; i++)
 	{
 		pthread_create(&threads[i], NULL, runTransaction, (void *)&tarr[i]);
+	}
+	for (int i = 0; i < N; i++)
+	{
 		pthread_join(threads[i], NULL);
+	}
+	cout << "final Data: "
+		 << "\n";
+	for (auto i : vars)
+	{
+		cout << i.first << " = " << i.second << "\n";
 	}
 	std::cout << "The End"
 			  << "\n";
