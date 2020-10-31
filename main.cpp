@@ -334,6 +334,24 @@ void *runTransaction(void *T)
 	{
 		vars[i.first] = i.second;
 	}
+	for (int i = 0; i < seq.size(); i++)
+	{
+		if (seq[i] == 'R')
+		{
+			if (reqseq[i].type == "R")
+			{
+				locker.releaseLock(trx->getId(), reqseq[i].varname);
+			}
+			else
+			{
+				locker.releaseLock(trx->getId(), reqseq[i].varname);
+			}
+		}
+		else
+		{
+			locker.releaseLock(trx->getId(), opseq[i].varname);
+		}
+	}
 
 	return NULL;
 }
@@ -396,7 +414,7 @@ int main()
 				Request R(vec[0], vec[1]);
 				T.addRequest(R);
 			}
-			// Else it is an maths operation like u = u + v
+			// Else it is a math operation like u = u + v
 			else
 			{
 				// check if last thing is a number or var
