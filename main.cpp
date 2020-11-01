@@ -250,6 +250,7 @@ void *runTransaction(void *T)
 	std::unordered_map<std::string, int> map1; //This map is local copy of database, finally this will written to global
 	std::unordered_map<std::string, int> map2; //This map stores value after performing operation on var
 	int req_counter = 0, op_counter = 0;
+	printf("Transaction id: %d\n", trx->getId());
 	for (int i = 0; i < seq.size(); i++)
 	{
 		// If there is request in seq
