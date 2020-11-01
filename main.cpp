@@ -189,7 +189,9 @@ public:
 		while (active_read[varname] > 1 || active_write[varname] > 0)
 		{
 			waiting_write[varname]++;
+			active_read[varname]--;
 			pthread_cond_wait(&condvar[varname], &lock);
+			active_read[varname]++;
 			waiting_write[varname]--;
 		}
 
@@ -215,7 +217,7 @@ public:
 		{
 			mp[tid][varname] = 0;
 			active_read[varname]--;
-			if (active_read[varname] == 0 && waiting_write[varname] > 0)
+			if (active_read[varname] == 0) 
 			{
 				pthread_cond_broadcast(&condvar[varname]);
 			}
@@ -263,7 +265,6 @@ void *runTransaction(void *T)
 
 	for (int i = 0; i < seq.size(); i++)
 	{
-		cout << trx->getId() << " " << seq[i] << "\n";
 		// If there is request in seq
 		if (seq[i] == "R")
 		{
@@ -293,22 +294,22 @@ void *runTransaction(void *T)
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
 					}
 				}
 				else
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + opseq[op_counter].value;
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - opseq[op_counter].value;
 					}
 				}
 			}
@@ -321,22 +322,22 @@ void *runTransaction(void *T)
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
 					}
 				}
 				else
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + opseq[op_counter].value;
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - opseq[op_counter].value;
 					}
 				}
 			}
@@ -364,7 +365,6 @@ void *runTransaction(void *T)
 	{
 		locker->releaseLock(trx->getId(), itr->first);
 	}
-
 	return NULL;
 }
 
