@@ -439,8 +439,6 @@ int main()
 	}
 
 
-	// Instantiating locker
-	locker = new LockMgr();
 	
 	// Now execute every transction
 	pthread_t threads[N];
