@@ -180,7 +180,8 @@ public:
 			return false;
 
 		pthread_mutex_lock(&lock);
-
+		active_read[varname]--;
+		
 		while (active_write[varname] > 1 || active_read[varname] > 0)
 		{
 			waiting_write[varname]++;
@@ -189,7 +190,6 @@ public:
 		}
 
 		mp[tid][varname] = 2;
-		active_read[varname]--;
 		active_write[varname]++;
 		pthread_mutex_unlock(&lock);
 
@@ -230,7 +230,14 @@ bool isNumber(std::string s)
 
 	return true;
 }
+
+
+LockMgr *locker;
+
+
 // Execution function for each transaction
+
+
 void *runTransaction(void *T)
 {
 	Transaction *trx;
@@ -240,90 +247,82 @@ void *runTransaction(void *T)
 	std::vector<Operation> opseq = trx->getopSeq();
 	std::vector<Request> reqseq = trx->getreqSeq();
 	string seq = trx->getseq();
-	unordered_map<std::string, int> map1; //This map is local copy of database, finally this will written to global
-	unordered_map<std::string, int> map2; //This map stores value after performing operation on var
-	// LockMngr Object
-	LockMgr locker;
-
+	std::unordered_map<std::string, int> map1; //This map is local copy of database, finally this will written to global
+	std::unordered_map<std::string, int> map2; //This map stores value after performing operation on var
+	int req_counter = 0, op_counter = 0;
 	for (int i = 0; i < seq.size(); i++)
 	{
 		// If there is request in seq
 		if (seq[i] == 'R')
 		{
 			// if it is a read request
-			if (reqseq[i].type == "R")
+			if (reqseq[req_counter].type == "R")
 			{
-				locker.acquireReadLock(trx->getId(), reqseq[i].varname);
-				map1[reqseq[i].varname] = vars[reqseq[i].varname];
+				locker->acquireReadLock(trx->getId(), reqseq[req_counter].varname);
+				map1[reqseq[req_counter].varname] = vars[reqseq[req_counter].varname];
+				map2[reqseq[req_counter].varname] = vars[reqseq[req_counter].varname];
 			}
 			// If it is a W request
 			else
 			{
-				if (locker.upgradeToWrite(trx->getId(), reqseq[i].varname))
-				{
-					map1[reqseq[i].varname] = map2[reqseq[i].varname];
-				}
-				else
-				{
-					locker.acquireWriteLock(trx->getId(), reqseq[i].varname);
-					map1[reqseq[i].varname] = map2[reqseq[i].varname];
-				}
+				map1[reqseq[req_counter].varname] = map2[reqseq[req_counter].varname];
 			}
+			req_counter++;
 		}
 		// If there is an Operation in seq
 		else
-		{
+		{	
 			// Check if already have write lock
-			if (locker.upgradeToWrite(trx->getId(), opseq[i].varname))
+			if (locker->upgradeToWrite(trx->getId(), opseq[op_counter].varname))
 			{
 				// Check if there is other variable present
-				if (opseq[i].isOtherVar)
+				if (opseq[op_counter].isOtherVar)
 				{
-					if (opseq[i].op == "+")
+					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] + map1[opseq[i].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
 					}
 					else
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] - map1[opseq[i].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
 					}
 				}
 				else
 				{
-					if (opseq[i].op == "+")
+					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] + opseq[i].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + opseq[op_counter].value;
 					}
 					else
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] - opseq[i].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - opseq[op_counter].value;
 					}
 				}
 			}
 			// If not then acquire write lock
 			else
 			{
-				locker.acquireWriteLock(trx->getId(), opseq[i].varname);
-				if (opseq[i].isOtherVar)
+				locker->acquireWriteLock(trx->getId(), opseq[op_counter].varname);
+				if (opseq[op_counter].isOtherVar)
 				{
-					if (opseq[i].op == "+")
+					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] + map1[opseq[i].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
 					}
 					else
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] - map1[opseq[i].otherVar];
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
 					}
 				}
 				else
 				{
-					if (opseq[i].op == "+")
+					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] + opseq[i].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + opseq[op_counter].value;
 					}
 					else
 					{
-						map2[opseq[i].varname] = map1[opseq[i].varname] - opseq[i].value;
+						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - opseq[op_counter].value;
 					}
 				}
 			}
@@ -334,29 +333,33 @@ void *runTransaction(void *T)
 	{
 		vars[i.first] = i.second;
 	}
+
+	req_counter = op_counter = 0;
+	
 	for (int i = 0; i < seq.size(); i++)
 	{
 		if (seq[i] == 'R')
 		{
-			if (reqseq[i].type == "R")
+			if (reqseq[req_counter].type == "R")
 			{
-				locker.releaseLock(trx->getId(), reqseq[i].varname);
+				locker->releaseLock(trx->getId(), reqseq[req_counter].varname);
 			}
 			else
 			{
-				locker.releaseLock(trx->getId(), reqseq[i].varname);
+				locker->releaseLock(trx->getId(), reqseq[req_counter].varname);
 			}
+			req_counter++;
 		}
 		else
 		{
-			locker.releaseLock(trx->getId(), opseq[i].varname);
+			locker->releaseLock(trx->getId(), opseq[op_counter].varname);
+			op_counter++;
 		}
 	}
 
 	return NULL;
 }
 
-// LockMgr *locker;
 
 int main()
 {
@@ -434,6 +437,10 @@ int main()
 		tarr[counter++] = T;
 	}
 
+
+	// Instantiating locker
+	locker = new LockMgr();
+	
 	// Now execute every transction
 	pthread_t threads[N];
 	for (int i = 0; i < N; i++)
