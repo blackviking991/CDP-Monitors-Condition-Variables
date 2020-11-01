@@ -117,6 +117,20 @@ public:
 	}
 };
 
+bool compareSets(unordered_set<int> a, unordered_set<int> b)
+{
+	if (a.size() != b.size())
+		return 0;
+
+	for (auto it1 = a.begin(), it2 = b.begin(); it1 != a.end(), it2 != b.end(); it1++, it2++)
+	{
+		if (*it1 != *it2)
+			return 0;
+	}
+
+	return 1;
+}
+
 // Lockmngr class for locking functions
 class LockMgr
 {
@@ -124,10 +138,10 @@ private:
 	pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER; //single lock for all
 
 	std::unordered_map<std::string, pthread_cond_t> condvar; //condvar for each database var
-	std::unordered_map<std::string, int> active_read;		 //active readers on each database var
-	std::unordered_map<std::string, int> active_write;		 // active writers on each database var
-	std::unordered_map<std::string, int> waiting_read;		 // waiting readers on each database var
-	std::unordered_map<std::string, int> waiting_write;		 // waiting witers on each database var
+	std::unordered_map<std::string, unordered_set<int>> active_read;		 //active readers on each database var
+	std::unordered_map<std::string, unordered_set<int>> active_write;		 // active writers on each database var
+	std::unordered_map<std::string, unordered_set<int>> waiting_read;		 // waiting readers on each database var
+	std::unordered_map<std::string, unordered_set<int>> waiting_write;		 // waiting witers on each database var
 	std::unordered_map<std::string, std::queue<Transaction>> Q;
 	//mp keeps track of what lock is held by what tid
 	std::unordered_map<int, unordered_map<string, int>> mp; // 0  for not present, 1 for read-only, 2 for write-read
@@ -147,15 +161,15 @@ public:
 	{
 		pthread_mutex_lock(&lock);
 
-		while (active_write[varname] > 0 || waiting_write[varname] > 0)
+		while (active_write[varname].size() > 0 || waiting_write[varname].size() > 0)
 		{
-			waiting_read[varname]++;
+			waiting_read[varname].insert(tid);
 			pthread_cond_wait(&condvar[varname], &lock);
-			waiting_read[varname]--;
+			waiting_read[varname].insert(tid);
 		}
 
 		mp[tid][varname] = 1;
-		active_read[varname]++;
+		active_read[varname].insert(tid);
 		pthread_mutex_unlock(&lock);
 
 		return true;
@@ -165,15 +179,15 @@ public:
 	{
 		pthread_mutex_lock(&lock);
 
-		while (active_write[varname] > 0 || active_read[varname] > 0)
+		while (active_write[varname].size() > 0 || active_read[varname].size() > 0)
 		{
-			waiting_write[varname]++;
+			waiting_write[varname].insert(tid);
 			pthread_cond_wait(&condvar[varname], &lock);
-			waiting_write[varname]--;
+			waiting_write[varname].erase(tid);
 		}
 
 		mp[tid][varname] = 2;
-		active_write[varname]++;
+		active_write[varname].insert(tid);
 		pthread_mutex_unlock(&lock);
 
 		return true;
@@ -186,18 +200,16 @@ public:
 
 		pthread_mutex_lock(&lock);
 		
-		while (active_read[varname] > 1 || active_write[varname] > 0)
+		while (active_read[varname].size() > 1 || active_write[varname].size() > 0)
 		{
-			waiting_write[varname]++;
-			active_read[varname]--;
+			waiting_write[varname].insert(tid);
 			pthread_cond_wait(&condvar[varname], &lock);
-			active_read[varname]++;
-			waiting_write[varname]--;
+			waiting_write[varname].erase(tid);
 		}
 
 		mp[tid][varname] = 2;
-		active_read[varname]--;
-		active_write[varname]++;
+		active_read[varname].erase(tid);
+		active_write[varname].insert(tid);
 		pthread_mutex_unlock(&lock);
 
 		return true;
@@ -210,14 +222,14 @@ public:
 		if (mp[tid][varname] == 2)
 		{
 			mp[tid][varname] = 0;
-			active_write[varname]--;
+			active_write[varname].erase(tid);
 			pthread_cond_broadcast(&condvar[varname]);
 		}
 		else if (mp[tid][varname] == 1)
 		{
 			mp[tid][varname] = 0;
-			active_read[varname]--;
-			if (active_read[varname] == 0) 
+			active_read[varname].erase(tid);
+			if (active_read[varname].size() == 0 || (active_read[varname].size() > 0 && compareSets(active_read[varname], waiting_write[varname]))) 
 			{
 				pthread_cond_broadcast(&condvar[varname]);
 			}
@@ -266,6 +278,7 @@ void *runTransaction(void *T)
 	for (int i = 0; i < seq.size(); i++)
 	{
 		// If there is request in seq
+		cout << trx->getId() << " " << seq[i] << endl;
 		if (seq[i] == "R")
 		{
 			// if it is a read request
