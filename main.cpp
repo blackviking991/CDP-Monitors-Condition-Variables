@@ -71,27 +71,32 @@ private:
 	int tid;
 	std::vector<Operation> opSeq; //vector to store all operations of a transaction
 	std::vector<Request> reqSeq;  // vector to store lock requests
-	std::string seq;			  //sequence string to store the sequence of what to be done ORORORRO
+	std::vector<string> seq;			  //sequence string to store the sequence of what to be done ORORORRO
 public:
 	Transaction() {}
 
 	Transaction(int id)
 	{
 		tid = id;
-		seq = "";
 	}
 
 	void addOperation(Operation O)
 	{
-		seq.push_back('O'); //O means perform operation
+		seq.push_back("O"); //O means perform operation
 		opSeq.push_back(O);
 	}
 
 	void addRequest(Request R)
 	{
-		seq.push_back('R'); //R means lock request
+		seq.push_back("R"); //R means lock request
 		reqSeq.push_back(R);
 	}
+
+	void addResult(string s)
+	{
+		seq.push_back(s);
+	}
+
 	std::vector<Operation> getopSeq()
 	{
 		return opSeq;
@@ -100,7 +105,7 @@ public:
 	{
 		return reqSeq;
 	}
-	std::string getseq()
+	std::vector<string> getseq()
 	{
 		return seq;
 	}
@@ -142,7 +147,7 @@ public:
 	{
 		pthread_mutex_lock(&lock);
 
-		while (active_write[varname] > 0)
+		while (active_write[varname] > 0 || waiting_write[varname] > 0)
 		{
 			waiting_read[varname]++;
 			pthread_cond_wait(&condvar[varname], &lock);
@@ -180,9 +185,8 @@ public:
 			return false;
 
 		pthread_mutex_lock(&lock);
-		active_read[varname]--;
 		
-		while (active_write[varname] > 1 || active_read[varname] > 0)
+		while (active_read[varname] > 1 || active_write[varname] > 0)
 		{
 			waiting_write[varname]++;
 			pthread_cond_wait(&condvar[varname], &lock);
@@ -190,6 +194,7 @@ public:
 		}
 
 		mp[tid][varname] = 2;
+		active_read[varname]--;
 		active_write[varname]++;
 		pthread_mutex_unlock(&lock);
 
@@ -221,6 +226,8 @@ public:
 		return true;
 	}
 };
+
+LockMgr *locker;
 // Function to check if string contains a digit
 bool isNumber(std::string s)
 {
@@ -230,10 +237,6 @@ bool isNumber(std::string s)
 
 	return true;
 }
-
-
-LockMgr *locker;
-
 
 // Execution function for each transaction
 
@@ -246,15 +249,23 @@ void *runTransaction(void *T)
 	// Get all data related to this transaction
 	std::vector<Operation> opseq = trx->getopSeq();
 	std::vector<Request> reqseq = trx->getreqSeq();
-	string seq = trx->getseq();
+	
+	vector<string> seq = trx->getseq();
+	
 	std::unordered_map<std::string, int> map1; //This map is local copy of database, finally this will written to global
 	std::unordered_map<std::string, int> map2; //This map stores value after performing operation on var
+	
 	int req_counter = 0, op_counter = 0;
+
 	printf("Transaction id: %d\n", trx->getId());
+
+	vector<string> varsWithWriteLock;
+
 	for (int i = 0; i < seq.size(); i++)
 	{
+		cout << trx->getId() << " " << seq[i] << "\n";
 		// If there is request in seq
-		if (seq[i] == 'R')
+		if (seq[i] == "R")
 		{
 			// if it is a read request
 			if (reqseq[req_counter].type == "R")
@@ -271,32 +282,33 @@ void *runTransaction(void *T)
 			req_counter++;
 		}
 		// If there is an Operation in seq
-		else
+		else if (seq[i] == "O")
 		{	
-			// Check if already have write lock
+			// Check if already have read lock
 			if (locker->upgradeToWrite(trx->getId(), opseq[op_counter].varname))
 			{
 				// Check if there is other variable present
+				varsWithWriteLock.push_back(opseq[op_counter].varname);
 				if (opseq[op_counter].isOtherVar)
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
 					}
 				}
 				else
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + opseq[op_counter].value;
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - opseq[op_counter].value;
 					}
 				}
 			}
@@ -304,63 +316,57 @@ void *runTransaction(void *T)
 			else
 			{
 				locker->acquireWriteLock(trx->getId(), opseq[op_counter].varname);
+				varsWithWriteLock.push_back(opseq[op_counter].varname);
 				if (opseq[op_counter].isOtherVar)
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + map1[opseq[op_counter].otherVar];
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - map1[opseq[op_counter].otherVar];
 					}
 				}
 				else
 				{
 					if (opseq[op_counter].op == "+")
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] + opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] + opseq[op_counter].value;
 					}
 					else
 					{
-						map2[opseq[op_counter].varname] = map2[opseq[op_counter].varname] - opseq[op_counter].value;
+						map2[opseq[op_counter].varname] = map1[opseq[op_counter].varname] - opseq[op_counter].value;
 					}
 				}
 			}
+			op_counter++;
+		}
+		else if (seq[i] == "C")
+		{
+			break;
+		}
+		else if (seq[i] == "A")
+		{
+			goto here;
 		}
 	}
 	// After completion of trx i.e C, write map1 to global
-	for (auto i : map1)
+	for (auto str : varsWithWriteLock)
 	{
-		vars[i.first] = i.second;
+		vars[str] = map1[str];
 	}
 
 	req_counter = op_counter = 0;
-	
-	for (int i = 0; i < seq.size(); i++)
+		
+	here:;
+	for (auto itr = vars.begin(); itr != vars.end(); itr++)
 	{
-		if (seq[i] == 'R')
-		{
-			if (reqseq[req_counter].type == "R")
-			{
-				locker->releaseLock(trx->getId(), reqseq[req_counter].varname);
-			}
-			else
-			{
-				locker->releaseLock(trx->getId(), reqseq[req_counter].varname);
-			}
-			req_counter++;
-		}
-		else
-		{
-			locker->releaseLock(trx->getId(), opseq[op_counter].varname);
-			op_counter++;
-		}
+		locker->releaseLock(trx->getId(), itr->first);
 	}
 
 	return NULL;
 }
-
 
 int main()
 {
@@ -398,9 +404,9 @@ int main()
 
 	int counter = 0;
 	// fill data in that array
+	getline(file, text);
 	while (counter < N)
 	{
-		getline(file, text);
 		int tid = stoi(text);
 
 		Transaction T(tid);
@@ -408,8 +414,17 @@ int main()
 		{
 			getline(file, text);
 
-			if (text == "C")
+			if (text == "C" || text == "A")
+			{
+				T.addResult(text);
+				while (1)
+				{
+					getline(file, text);
+					if (isNumber(text))
+						break;
+				}
 				break;
+			}
 
 			std::vector<std::string> vec = splitWord(text);
 
@@ -437,6 +452,8 @@ int main()
 		// Store all the info for this transaction in array and move to nxt
 		tarr[counter++] = T;
 	}
+
+	locker = new LockMgr();
 
 
 	
