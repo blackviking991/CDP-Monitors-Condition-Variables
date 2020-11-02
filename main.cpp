@@ -6,6 +6,8 @@ using namespace std;
 // Actual Database with name mapped to value, eg. 'u' : 100
 std::unordered_map<std::string, int> vars;
 
+ofstream output("output5b.txt");
+
 // Function to split a line from text file
 std::vector<std::string> splitWord(std::string str)
 {
@@ -161,8 +163,15 @@ public:
 	{
 		pthread_mutex_lock(&lock);
 
+		bool f = 0;
 		while (active_write[varname].size() > 0 || waiting_write[varname].size() > 0)
 		{
+			if (!f)
+			{
+				output << "wait_R-lock [" + to_string(tid) + ", " + varname + "]\n";
+				output.flush();
+				f = 1;
+			}
 			waiting_read[varname].insert(tid);
 			pthread_cond_wait(&condvar[varname], &lock);
 			waiting_read[varname].insert(tid);
@@ -179,8 +188,16 @@ public:
 	{
 		pthread_mutex_lock(&lock);
 
+		bool f = 0;
 		while (active_write[varname].size() > 0 || active_read[varname].size() > 0)
 		{
+			if (!f)
+			{
+				output << "wait_W-lock [" + to_string(tid) + ", " + varname + "]\n";
+				output.flush();
+				f = 1;
+			}
+
 			waiting_write[varname].insert(tid);
 			pthread_cond_wait(&condvar[varname], &lock);
 			waiting_write[varname].erase(tid);
@@ -200,8 +217,15 @@ public:
 
 		pthread_mutex_lock(&lock);
 		
+		bool f = 0;
 		while (active_read[varname].size() > 1 || active_write[varname].size() > 0)
 		{
+			if (!f)
+			{
+				output << "wait_Upgrade [" + to_string(tid) + ", " + varname + "]\n";
+				output.flush();
+				f = 1;
+			}
 			waiting_write[varname].insert(tid);
 			pthread_cond_wait(&condvar[varname], &lock);
 			waiting_write[varname].erase(tid);
@@ -223,12 +247,17 @@ public:
 		{
 			mp[tid][varname] = 0;
 			active_write[varname].erase(tid);
+			output << "unlock [" + to_string(tid) + ", " + varname + "]\n";
+			output.flush();
 			pthread_cond_broadcast(&condvar[varname]);
 		}
 		else if (mp[tid][varname] == 1)
 		{
 			mp[tid][varname] = 0;
 			active_read[varname].erase(tid);
+			output << "unlock [" + to_string(tid) + ", " + varname + "]\n";
+			output.flush();
+
 			if (active_read[varname].size() == 0 || (active_read[varname].size() > 0 && compareSets(active_read[varname], waiting_write[varname]))) 
 			{
 				pthread_cond_broadcast(&condvar[varname]);
@@ -271,20 +300,20 @@ void *runTransaction(void *T)
 	
 	int req_counter = 0, op_counter = 0;
 
-	printf("Transaction id: %d\n", trx->getId());
-
 	vector<string> varsWithWriteLock;
 
 	for (int i = 0; i < seq.size(); i++)
 	{
 		// If there is request in seq
-		cout << trx->getId() << " " << seq[i] << endl;
+		// cout << trx->getId() << " " << seq[i] << endl;
 		if (seq[i] == "R")
 		{
 			// if it is a read request
 			if (reqseq[req_counter].type == "R")
 			{
 				locker->acquireReadLock(trx->getId(), reqseq[req_counter].varname);
+				output << "R-lock [" + to_string(trx->getId()) + ", " + reqseq[req_counter].varname + "]\n";
+				output.flush();
 				map1[reqseq[req_counter].varname] = vars[reqseq[req_counter].varname];
 				map2[reqseq[req_counter].varname] = vars[reqseq[req_counter].varname];
 			}
@@ -302,6 +331,8 @@ void *runTransaction(void *T)
 			if (locker->upgradeToWrite(trx->getId(), opseq[op_counter].varname))
 			{
 				// Check if there is other variable present
+				output << "Upgrade [" + to_string(trx->getId()) + ", " + opseq[op_counter].varname + "]\n";
+				output.flush();
 				varsWithWriteLock.push_back(opseq[op_counter].varname);
 				if (opseq[op_counter].isOtherVar)
 				{
@@ -330,6 +361,8 @@ void *runTransaction(void *T)
 			else
 			{
 				locker->acquireWriteLock(trx->getId(), opseq[op_counter].varname);
+				output << "W-lock [" + to_string(trx->getId()) + ", " + opseq[op_counter].varname + "]\n";
+				output.flush();
 				varsWithWriteLock.push_back(opseq[op_counter].varname);
 				if (opseq[op_counter].isOtherVar)
 				{
@@ -381,10 +414,16 @@ void *runTransaction(void *T)
 	return NULL;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+	if (argc == 0)
+	{
+		cout << "No file found" << "\n";
+		exit(-1);
+	}
+
 	std::string text;
-	std::ifstream file("input.txt");
+	std::ifstream file(argv[1]);
 
 	getline(file, text); // number of transactions N
 	std::vector<std::string> temp = splitWord(text);
@@ -484,7 +523,9 @@ int main()
 		 << "\n";
 	for (auto i : vars)
 	{
-		cout << i.first << " = " << i.second << "\n";
+		output << i.first << " " << i.second << " ";
+		cout << i.first << " " << i.second << "\n";
+
 	}
 	std::cout << "The End"
 			  << "\n";

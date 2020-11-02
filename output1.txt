@@ -1,0 +1,11 @@
+R-lock [1, u]
+R-lock [2, v]
+unlock [2, v]
+R-lock [4, y]
+R-lock [5, z]
+unlock [4, y]
+unlock [5, z]
+R-lock [3, x]
+unlock [1, u]
+unlock [3, x]
+y 100 x 20 v 10 z 50 u 10 

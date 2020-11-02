@@ -1,0 +1,27 @@
+5
+u 10 v 10 x 100 y 21 z 90
+1
+R u
+u = u + 10
+W u
+C
+2
+R v
+v = v - 10
+W v
+C
+3
+R x
+x = x - 100
+W x
+C
+4
+R y
+y = y + 50
+W y
+C
+5
+R z
+z = z - 10
+W z
+C

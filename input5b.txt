@@ -1,0 +1,29 @@
+5
+u 10 v 10 x 15 y 8 z 22
+1
+R u
+R v
+u = u + v
+W u
+C
+2
+R u
+u = u + 20
+A
+W u
+3
+R x
+x = x + 10
+W x
+C
+4
+R x
+A
+x = x + 50
+W x
+5
+R z
+R x
+z = z + x
+A
+W z
